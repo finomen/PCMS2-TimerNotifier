@@ -1,0 +1,4 @@
+<timer-notifier
+	start="always"
+	clock-id="ru.ifmo.train"
+/>

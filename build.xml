@@ -1,0 +1,31 @@
+<project name="TimerNotifier" default="jar" basedir=".">
+  <property name="src" location="src"/>
+  <property name="bin" location="bin"/>
+  <property name="lib" location="lib"/>
+
+  <target name="init">
+    <!-- Create the time stamp -->
+    <tstamp/>
+    <!-- Create the build directory structure used by compile -->
+    <mkdir dir="${bin}"/>
+  </target>
+
+  <target name="compile" depends="init"
+        description="compile the source " >
+    <!-- Compile the java code from ${src} into ${build} -->
+    <javac srcdir="${src}" destdir="${bin}"/>
+  </target>
+
+  <target name="jar" depends="compile"
+        description="generate the distribution" >
+  	<mkdir dir="${lib}"/>
+    <jar jarfile="${lib}/timer-notifier.jar" basedir="${bin}">
+    	<metainf dir="." includes="components.xml"/>  
+  	</jar>
+  </target>
+
+  <target name="clean"
+        description="clean up" >
+    <delete dir="${bin}"/>
+  </target>
+</project>

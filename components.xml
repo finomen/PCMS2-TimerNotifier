@@ -1,0 +1,5 @@
+<components>
+	<component root="timer-notifier" class="pcms2.timer.TimerNotifier">
+		<service class="pcms2.timer.ITimerNotifier"/>
+	</component>
+</components>
