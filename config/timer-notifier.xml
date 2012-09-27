@@ -1,4 +1,9 @@
 <timer-notifier
 	start="always"
 	clock-id="ru.ifmo.train"
+	multicast-group="225.0.0.1"
+	multicast-port="6767"
+	broadcast-addr="255.255.255.255"
+	broadcast-port="6768"
+	udp-port="6768"
 />
