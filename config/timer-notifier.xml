@@ -1,7 +1,7 @@
 <timer-notifier
 	start="always"
 	clock-id="ru.ifmo.train"
-	update-interval="500"
+	sync-timeout="500"
 	multicast-group="225.0.0.1"
 	multicast-iface="eth1"
 	udp-port="6767"

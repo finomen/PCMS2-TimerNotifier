@@ -39,7 +39,7 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 	private Selector selector;
 
 	public void activate() throws ConfigurationException, IOException {
-		registerService(null, ITimerNotifier.class, this);
+		registerService("TimerNotifier", ITimerNotifier.class, this);
 		log.info("Timer notifier service registered");
 		try {
 			cs = (ClockService) lookupService(ClockService.class);
@@ -71,7 +71,7 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 			log.info("Joining multicast group...");
 			String group = config.getString("multicast-group");
 			InetAddress groupAddr = InetAddress.getByName(group);
-			NetworkInterface iface = NetworkInterface.getByName("iface");
+			NetworkInterface iface = NetworkInterface.getByName(config.getString("multicast-iface"));
 			multicastAddress = new InetSocketAddress(groupAddr, port);
 			udpChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, iface);
 			multicastKey = udpChannel.join(groupAddr, iface);
@@ -80,10 +80,9 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 
 		if (config.hasAttribute("broadcast-addr")) {
 			log.warning("Broadcast is very bad idea");
-			int broadcastPort = config.getInt("broadcast-port");
 			String broadcastAddr = config.getString("broadcast-addr");
 			broadcastAddress = new InetSocketAddress(
-					InetAddress.getByName(broadcastAddr), broadcastPort);
+					InetAddress.getByName(broadcastAddr), port);
 			udpChannel.setOption(StandardSocketOptions.SO_BROADCAST, true);
 		}
 
@@ -150,7 +149,7 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 			}
 			
 			try {
-				if (selector.select(timeout - (cTime - lastSync)) == 0) {
+				if (selector.select(Math.max(timeout - (cTime - lastSync), 10)) == 0) {
 					continue;
 				}
 				
