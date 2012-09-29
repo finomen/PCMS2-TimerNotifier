@@ -10,8 +10,13 @@ import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.MembershipKey;
-import java.nio.channels.MulticastChannel;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
 import java.rmi.RemoteException;
+import java.util.Date;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Set;
 
 import pcms2.framework.BaseComponent;
 import pcms2.framework.IThread;
@@ -26,9 +31,12 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 	private String clockId;
 	private DatagramChannel udpChannel = null;
 	private MembershipKey multicastKey = null;
+	private SelectionKey channelKey = null;
 	private SocketAddress multicastAddress = null;
-	private String broadcastAddr = null;
 	private SocketAddress broadcastAddress = null;
+	private Set<SocketAddress> clients = new HashSet<SocketAddress>();
+	private long timeout;
+	private Selector selector;
 
 	public void activate() throws ConfigurationException, IOException {
 		registerService(null, ITimerNotifier.class, this);
@@ -40,77 +48,50 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 		}
 
 		clockId = config.getString("clock-id");
+		timeout = config.getInt("sync-timeout");
+		
 
-		//FIXME: improve error handling
-		//TODO: join channels
-		if (config.hasAttribute("multicast-group")) {
-			log.info("Initiating multicast notifier");
-			if (config.hasAttribute("multicast-port")
-					&& config.hasAttribute("multicast-iface")) {
-				int multicastPort = config.getInt("multicast-port");
-				String group = config.getString("multicast-group");
+		udpChannel = DatagramChannel.open(StandardProtocolFamily.INET)
+				.setOption(StandardSocketOptions.SO_REUSEADDR, true);
 
-				InetAddress groupAddr = InetAddress.getByName(group);
-				NetworkInterface iface = NetworkInterface.getByName("iface");
-				
-				multicastAddress = new InetSocketAddress(groupAddr, multicastPort);
-				
-				MulticastChannel multicastChannel = DatagramChannel.open(StandardProtocolFamily.INET)
-						.setOption(StandardSocketOptions.SO_REUSEADDR, true)
-						.bind(new InetSocketAddress(multicastPort))
-						.setOption(StandardSocketOptions.IP_MULTICAST_IF, iface);
-				
-				multicastKey = multicastChannel.join(groupAddr, iface);			
-				log.info("Multicast notifier initiated");
-			} else {
-				if (!config.hasAttribute("multicast-port")) {
-					log.error("Required param multicast-port is not set. Multicast notifier disabled");
-				}
+		udpChannel.configureBlocking(false);
+		
+		selector = Selector.open();
+		channelKey = udpChannel.register(selector, SelectionKey.OP_READ, null);
 
-				if (!config.hasAttribute("multicast-iface")) {
-					log.error("Required param multicast-iface is not set. Multicast notifier disabled");
-				}
-			}
-
+		if (config.hasAttribute("udp-listen-port")) {
+			int port = config.getInt("udp-listen-port");
+			log.info("Begin listening for datagrams on port " + port + "...");
+			udpChannel.bind(new InetSocketAddress(port));
 		}
-		
-		if (config.hasAttribute("udp-port")) {
-			log.info("Initiating UDP notifier");
-			int port = config.getInt("udp-port");
-			log.info("UDP notifier initiated");
-			
-			udpChannel = DatagramChannel.open(StandardProtocolFamily.INET)
-					.setOption(StandardSocketOptions.SO_REUSEADDR, true)
-					.bind(new InetSocketAddress(port));
-		
 
-			if (config.hasAttribute("broadcast-port") && config.hasAttribute("broadcast-addr")) {
-				log.warning("Broadcast is very bad idea");
-				log.info("Initiating broadcast notifier");
-				int broadcastPort = config.getInt("broadcast-port");
-				broadcastAddr = config.getString("broadcast-addr");
-				
-				broadcastAddress = new InetSocketAddress(InetAddress.getByName(broadcastAddr), broadcastPort);
-	
-				udpChannel.setOption(StandardSocketOptions.SO_BROADCAST, true);
-	
-				log.info("Broadcast notifier initiated");
-			} else if (config.hasAttribute("broadcast-port") || config.hasAttribute("broadcast-addr")) {
-				if (!config.hasAttribute("broadcast-port")) {
-					log.error("Required param broadcast-port is not set. Multicast notifier disabled");
-				}
+		int port = config.getInt("udp-port");
 
-				if (!config.hasAttribute("broadcast-iface")) {
-					log.error("Required param broadcast-iface is not set. Multicast notifier disabled");
-				}
-			}
+		if (config.hasAttribute("multicast-group")) {
+			log.info("Joining multicast group...");
+			String group = config.getString("multicast-group");
+			InetAddress groupAddr = InetAddress.getByName(group);
+			NetworkInterface iface = NetworkInterface.getByName("iface");
+			multicastAddress = new InetSocketAddress(groupAddr, port);
+			udpChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, iface);
+			multicastKey = udpChannel.join(groupAddr, iface);
+			log.info("Multicast notifier initiated");
+		}
+
+		if (config.hasAttribute("broadcast-addr")) {
+			log.warning("Broadcast is very bad idea");
+			int broadcastPort = config.getInt("broadcast-port");
+			String broadcastAddr = config.getString("broadcast-addr");
+			broadcastAddress = new InetSocketAddress(
+					InetAddress.getByName(broadcastAddr), broadcastPort);
+			udpChannel.setOption(StandardSocketOptions.SO_BROADCAST, true);
 		}
 
 		if (config.hasAttribute("tcp-port")) {
-			//log.info("Initiating TCP notifier");
-			//int port = config.getInt("tcp-port");
+			// log.info("Initiating TCP notifier");
+			// int port = config.getInt("tcp-port");
 			log.error("TCP notifier not implemented");
-			//log.info("TCP notifier initiated");
+			// log.info("TCP notifier initiated");
 		}
 
 		worker = startThread(this, "timer-notifier-thread");
@@ -125,42 +106,87 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 		}
 	}
 
+	private void sendSync() throws NoSuchClockException, IOException {
+		Clock cl = cs.getClock(clockId);
+		ByteBuffer buf = ByteBuffer.allocate(18);
+		buf.put((byte) 0x01);
+		buf.put((byte) cl.getStatus());
+		buf.putLong(cl.getTime());
+		buf.putLong(cl.getLength());
+		buf.flip();
+
+		if (multicastKey != null) {
+			DatagramChannel channel = (DatagramChannel) multicastKey.channel();
+			try {
+				channel.send(buf, multicastAddress);
+				buf.rewind();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+
+		if (broadcastAddress != null) {
+			try {
+				udpChannel.send(buf, broadcastAddress);
+				buf.rewind();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+
+		for (SocketAddress sa : clients) {
+			udpChannel.send(buf, sa);
+		}
+	}
+
 	@Override
 	public void run() {
+		long lastSync = 0;
 		while (true) {
+			long cTime = (new Date()).getTime();		
+			
+			if (cTime - lastSync >= timeout) {
+				channelKey.interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+			}
+			
 			try {
-				try {
-					Clock cl = cs.getClock(clockId);
-					// log.info("I'm alive, " + clockId + "=" + cl.getTime());
-					
-					ByteBuffer buf = ByteBuffer.allocate(18);
-					buf.put((byte) 0x01);
-					buf.put((byte) cl.getStatus());
-					buf.putLong(cl.getTime());
-					buf.putLong(cl.getLength());
-					
-					if (multicastKey != null) {
-						DatagramChannel channel = (DatagramChannel) multicastKey.channel();
-						try {
-							channel.send(buf, multicastAddress);
-						} catch (IOException e) {
-							e.printStackTrace();
-						}
-					}
-					
-					if (broadcastAddr != null) {
-						try {
-							udpChannel.send(buf, broadcastAddress);
-						} catch (IOException e) {
-							e.printStackTrace();
-						}
-					}
-					
-					
-					
-				} catch (RemoteException | NoSuchClockException e) {
-					e.printStackTrace();
+				if (selector.select(timeout - (cTime - lastSync)) == 0) {
+					continue;
 				}
+				
+				Iterator<SelectionKey> keyIter = selector.selectedKeys().iterator();
+				while (keyIter.hasNext()) {
+					SelectionKey key = keyIter.next();
+					if (key.isReadable()) {
+						ByteBuffer buf = ByteBuffer.allocate(16);
+						InetSocketAddress sa = (InetSocketAddress)udpChannel.receive(buf);
+						buf.flip();
+						if (buf.limit() == 1 && buf.get() == 0x01) {
+							log.info("Register timer " + sa.getHostString());
+							clients.add(sa);
+						} else if (buf.limit() == 1 && buf.get() == 0x02) {
+							log.info("Remove timer " + sa.getHostString());
+							clients.remove(sa);
+						} else if (buf.limit() == 9 && buf.get() == 0x03) {
+							log.warning("NOT IMPLEMENTED! Echo from " + sa.getHostString());
+						}						
+					}
+
+					if (key.isValid() && key.isWritable()) {
+						sendSync();
+						channelKey.interestOps(SelectionKey.OP_READ);
+					}
+
+					keyIter.remove();
+				}
+				
+			} catch (IOException e2) {
+				log.error("IOException: " + e2.getLocalizedMessage());
+			} catch (NoSuchClockException e) {
+				log.error("Clock " + clockId + " does not exists!");
+			}
+			
+			try {
 				synchronized (this) {
 					this.wait(400);
 				}
