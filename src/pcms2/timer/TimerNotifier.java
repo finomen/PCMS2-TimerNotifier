@@ -117,8 +117,8 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 		if (multicastKey != null) {
 			DatagramChannel channel = (DatagramChannel) multicastKey.channel();
 			try {
-				channel.send(buf, multicastAddress);
 				buf.rewind();
+				channel.send(buf, multicastAddress);
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
@@ -126,14 +126,15 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 
 		if (broadcastAddress != null) {
 			try {
-				udpChannel.send(buf, broadcastAddress);
 				buf.rewind();
+				udpChannel.send(buf, broadcastAddress);
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
 		}
-
+	
 		for (SocketAddress sa : clients) {
+			buf.rewind();
 			udpChannel.send(buf, sa);
 		}
 	}
@@ -161,8 +162,8 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 						InetSocketAddress sa = (InetSocketAddress)udpChannel.receive(buf);
 						buf.flip();
 						if (buf.limit() == 1 && buf.get() == 0x01) {
-							log.info("Register timer " + sa.getHostString());
 							clients.add(sa);
+							log.info("Register timer " + sa.getHostString() + ":" + sa.getPort() + " [" + clients.size() + "]");
 						} else if (buf.limit() == 1 && buf.get() == 0x02) {
 							log.info("Remove timer " + sa.getHostString());
 							clients.remove(sa);
