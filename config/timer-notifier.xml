@@ -3,7 +3,6 @@
 	clock-id="ru.ifmo.train"
 	sync-timeout="500"
 	multicast-group="225.0.0.1"
-	multicast-iface="eth1"
 	udp-port="6767"
 	udp-listen-port="6767"
 	broadcast-addr="255.255.255.255"

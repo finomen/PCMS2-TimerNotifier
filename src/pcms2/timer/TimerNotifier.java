@@ -13,6 +13,7 @@ import java.nio.channels.MembershipKey;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.rmi.RemoteException;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -25,14 +26,15 @@ import pcms2.services.site.Clock;
 import pcms2.services.site.ClockService;
 import pcms2.services.site.NoSuchClockException;
 
+
 public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 	private IThread worker;
 	private ClockService cs;
 	private String clockId;
 	private DatagramChannel udpChannel = null;
-	private MembershipKey multicastKey = null;
+	private Set<MembershipKey> multicastKey = new HashSet<MembershipKey>();
 	private SelectionKey channelKey = null;
-	private SocketAddress multicastAddress = null;
+	private SocketAddress multicastAddress;
 	private SocketAddress broadcastAddress = null;
 	private Set<SocketAddress> clients = new HashSet<SocketAddress>();
 	private long timeout;
@@ -71,10 +73,18 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 			log.info("Joining multicast group...");
 			String group = config.getString("multicast-group");
 			InetAddress groupAddr = InetAddress.getByName(group);
-			NetworkInterface iface = NetworkInterface.getByName(config.getString("multicast-iface"));
+			for (NetworkInterface interf : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+				try {
+					udpChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, interf);
+					multicastKey.add(udpChannel.join(groupAddr, interf));
+					log.info("Joined group " + config.get("multicast-group") + " on interface " + interf.getDisplayName() + "[" + interf.getName() + "]");
+				} catch (IOException e)
+				{
+					log.warning("Failed to join group " + config.get("multicast-group") + " on interface " + interf.getDisplayName());
+				}
+			}
+						
 			multicastAddress = new InetSocketAddress(groupAddr, port);
-			udpChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, iface);
-			multicastKey = udpChannel.join(groupAddr, iface);
 			log.info("Multicast notifier initiated");
 		}
 
@@ -114,8 +124,8 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 		buf.putLong(cl.getLength());
 		buf.flip();
 
-		if (multicastKey != null) {
-			DatagramChannel channel = (DatagramChannel) multicastKey.channel();
+		for (MembershipKey key : multicastKey) {
+			DatagramChannel channel = (DatagramChannel) key.channel();
 			try {
 				buf.rewind();
 				channel.send(buf, multicastAddress);
@@ -142,7 +152,7 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 	@Override
 	public void run() {
 		long lastSync = 0;
-		while (true) {
+		while (!Thread.interrupted()) {
 			long cTime = (new Date()).getTime();		
 			
 			if (cTime - lastSync >= timeout) {
