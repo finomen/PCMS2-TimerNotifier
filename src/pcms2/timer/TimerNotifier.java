@@ -161,6 +161,8 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 			
 			if (cTime - lastSync >= timeout) {
 				channelKey.interestOps(SelectionKey.OP_READ | SelectionKey.OP_WRITE);
+			} else {
+				channelKey.interestOps(SelectionKey.OP_READ);
 			}
 			
 			try {
@@ -198,14 +200,6 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 				log.error("IOException: " + e2.getLocalizedMessage());
 			} catch (NoSuchClockException e) {
 				log.error("Clock " + clockId + " does not exists!");
-			}
-			
-			try {
-				synchronized (this) {
-					this.wait(400);
-				}
-			} catch (InterruptedException e) {
-				return;
 			}
 		}
 	}
