@@ -13,6 +13,7 @@ import java.nio.channels.MembershipKey;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.rmi.RemoteException;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
@@ -73,16 +74,22 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 			log.info("Joining multicast group...");
 			String group = config.getString("multicast-group");
 			InetAddress groupAddr = InetAddress.getByName(group);
-			for (NetworkInterface interf : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-				try {
-					udpChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, interf);
-					multicastKey.add(udpChannel.join(groupAddr, interf));
-					log.info("Joined group " + config.get("multicast-group") + " on interface " + interf.getDisplayName() + "[" + interf.getName() + "]");
-				} catch (IOException e)
-				{
-					log.warning("Failed to join group " + config.get("multicast-group") + " on interface " + interf.getDisplayName());
+			
+			NetworkInterface interf = NetworkInterface.getByName(config.getString("multicast-iface"));
+			
+			try {
+				udpChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, interf);
+				multicastKey.add(udpChannel.join(groupAddr, interf));
+				log.info("Joined group " + config.get("multicast-group") + " on interface " + interf.getDisplayName() + "[" + interf.getName() + "]");				
+			} catch (IOException e)
+			{
+				log.error("Failed to join group " + config.get("multicast-group") + " on interface " + interf.getDisplayName());
+				log.info("Available interfaces");
+				for (NetworkInterface iface : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+					log.info(iface.getName() + ": " + iface.getDisplayName());
 				}
 			}
+			
 						
 			multicastAddress = new InetSocketAddress(groupAddr, port);
 			log.info("Multicast notifier initiated");
