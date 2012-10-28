@@ -111,11 +111,15 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 		try {
 			worker.join();
 		} catch (InterruptedException e) {
-			e.printStackTrace();
+			Thread.currentThread().interrupt();
 		}
 	}
 
 	private void sendSync() throws NoSuchClockException, IOException {
+		if (cs == null) {
+			log.warning("Sync without clock service");
+			return;
+		}
 		Clock cl = cs.getClock(clockId);
 		ByteBuffer buf = ByteBuffer.allocate(18);
 		buf.put((byte) 0x01);
