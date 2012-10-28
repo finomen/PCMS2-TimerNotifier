@@ -33,7 +33,7 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 	private ClockService cs;
 	private String clockId;
 	private DatagramChannel udpChannel = null;
-	private Set<MembershipKey> multicastKey = new HashSet<MembershipKey>();
+	private MembershipKey multicastKey = null;
 	private SelectionKey channelKey = null;
 	private SocketAddress multicastAddress;
 	private SocketAddress broadcastAddress = null;
@@ -79,7 +79,7 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 			
 			try {
 				udpChannel.setOption(StandardSocketOptions.IP_MULTICAST_IF, interf);
-				multicastKey.add(udpChannel.join(groupAddr, interf));
+				multicastKey = udpChannel.join(groupAddr, interf);
 				log.info("Joined group " + config.get("multicast-group") + " on interface " + interf.getDisplayName() + "[" + interf.getName() + "]");				
 			} catch (IOException e)
 			{
@@ -135,15 +135,14 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 		buf.putLong(cl.getLength());
 		buf.flip();
 
-		for (MembershipKey key : multicastKey) {
-			DatagramChannel channel = (DatagramChannel) key.channel();
-			try {
-				buf.rewind();
-				channel.send(buf, multicastAddress);
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
+		DatagramChannel channel = (DatagramChannel) multicastKey.channel();
+		try {
+			buf.rewind();
+			channel.send(buf, multicastAddress);
+		} catch (IOException e) {
+			e.printStackTrace();
 		}
+
 
 		if (broadcastAddress != null) {
 			try {
