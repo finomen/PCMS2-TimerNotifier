@@ -13,7 +13,6 @@ import java.nio.channels.MembershipKey;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.rmi.RemoteException;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
@@ -103,13 +102,6 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 			udpChannel.setOption(StandardSocketOptions.SO_BROADCAST, true);
 		}
 
-		if (config.hasAttribute("tcp-port")) {
-			// log.info("Initiating TCP notifier");
-			// int port = config.getInt("tcp-port");
-			log.error("TCP notifier not implemented");
-			// log.info("TCP notifier initiated");
-		}
-
 		worker = startThread(this, "timer-notifier-thread");
 	}
 
@@ -127,6 +119,7 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 			log.warning("Sync without clock service");
 			return;
 		}
+		
 		Clock cl = cs.getClock(clockId);
 		ByteBuffer buf = ByteBuffer.allocate(18);
 		buf.put((byte) 0x01);
@@ -135,12 +128,14 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 		buf.putLong(cl.getLength());
 		buf.flip();
 
-		DatagramChannel channel = (DatagramChannel) multicastKey.channel();
-		try {
-			buf.rewind();
-			channel.send(buf, multicastAddress);
-		} catch (IOException e) {
-			e.printStackTrace();
+		if (multicastKey != null) {
+			DatagramChannel channel = (DatagramChannel) multicastKey.channel();
+			try {
+				buf.rewind();
+				channel.send(buf, multicastAddress);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 		}
 
 
@@ -189,9 +184,7 @@ public class TimerNotifier extends BaseComponent implements ITimerNotifier {
 						} else if (buf.limit() == 1 && buf.get() == 0x02) {
 							log.info("Remove timer " + sa.getHostString());
 							clients.remove(sa);
-						} else if (buf.limit() == 9 && buf.get() == 0x03) {
-							log.warning("NOT IMPLEMENTED! Echo from " + sa.getHostString());
-						}						
+						}
 					}
 
 					if (key.isValid() && key.isWritable()) {
